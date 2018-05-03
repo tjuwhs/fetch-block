@@ -2,7 +2,7 @@ all:
 	govendor init
 	govendor add +e
 	govendor fetch -v +m
-	go build -o fetchBlock
+	go build -o blockTrigger
 
 clean:
 	rm -rf ./vendor

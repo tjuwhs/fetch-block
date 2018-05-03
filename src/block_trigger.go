@@ -25,6 +25,9 @@ import (
 	pb "github.com/hyperledger/fabric/protos/peer"
 	"github.com/hyperledger/fabric/protos/utils"
 	"github.com/spf13/viper"
+	"log"
+	"net/http"
+	"io/ioutil"
 )
 
 var expName string // folder of this name is created where all data goes
@@ -229,6 +232,7 @@ func processBlock(blockEvent *pb.Event_Block) {
 	var localBlock Block
 	var now time.Time
 
+	var valittxID = make([]string, len(block.Data.Data))
 	block = blockEvent.Block
 	localBlock.Header = block.Header
 	localBlock.TransactionFilter = ledgerUtil.NewTxValidationFlags(len(block.Data.Data))
@@ -283,6 +287,7 @@ func processBlock(blockEvent *pb.Event_Block) {
 		validationCode := localBlock.TransactionFilter[txIndex]
 		validationCodeName := pb.TxValidationCode_name[int32(validationCode)]
 		if validationCode == 0 {
+			valittxID[blockPerf.NumInvalidTx] = localChannelHeader.TxId
 			blockPerf.NumValidTx++
 			throughPutPerf.Lock()
 			throughPutPerf.NumValidTx++
@@ -376,6 +381,13 @@ func processBlock(blockEvent *pb.Event_Block) {
 		//append the transaction
 		localBlock.Transactions = append(localBlock.Transactions, localTransaction)
 	}
+
+	//send to data center
+	var paramMap = make(map[string]interface{})
+	paramMap["request_id"] = valittxID[:blockPerf.NumValidTx]
+
+	sendData2LvwanCenter(getTriggerVerifyUrl(), paramMap)
+
 	if log_block {
 		blockJSON, _ := json.Marshal(localBlock)
 		blockJSONString, _ := prettyprint(blockJSON)
@@ -395,6 +407,46 @@ func processBlock(blockEvent *pb.Event_Block) {
 		f.WriteString(string(blockPerfJSONString))
 		f.Close()
 	}
+}
+
+func getTriggerVerifyUrl()(string){
+	host := viper.GetString("data_center.host")
+	path := viper.GetString("trigger_verify_path")
+	return fmt.Sprintf("http://%s/%s", host, path)
+}
+
+func sendData2LvwanCenter(url string, paramMap map[string]interface{})(string, error){
+	reqBody, err := json.Marshal(paramMap)
+	if err != nil{
+		log.Println("paramMap marshal failed", err)
+		return "", fmt.Errorf("paramMap marshal failed, err %s", err)
+	}
+
+	log.Println("reqBody is %s", string(reqBody))
+	postReq, err := http.NewRequest("POST", url, strings.NewReader(string(reqBody)))
+
+	if err != nil{
+		log.Println("Post Reqeust failed", err)
+		return "", fmt.Errorf("Post Reqeust failed, err %s", err)
+	}
+
+	postReq.Header.Set("Content-type","application/json; encoding=utf-8")
+
+	client := &http.Client{}
+	resp, err := client.Do(postReq)
+	if err != nil{
+		log.Println("POST请求失败",err)
+		return "", fmt.Errorf("POST请求失败, err %s", err)
+	}
+
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil{
+		log.Println("Resp Body read failed", err)
+		return "", fmt.Errorf("Resp Body read failed, err %s", err)
+	}
+
+	return string(body), nil
 }
 
 func main() {

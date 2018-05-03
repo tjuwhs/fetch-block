@@ -26,3 +26,7 @@ log:
     event: true
     block: true
     blockperf: true
+
+data_center:
+  host: 172.17.3.145:11535
+  trigger_verify_path: gb/idcard/verify
